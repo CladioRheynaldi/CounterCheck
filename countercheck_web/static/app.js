@@ -12,7 +12,7 @@ function note(text){$('manual-note').textContent=text;$('manual-note').hidden=!t
 function controls(){
   $('start').disabled=running||!ready;$('stop').disabled=!running;$('model').disabled=running||!ready;
   $('reviewed').disabled=confirmed;$('add').disabled=confirmed||!ready;$('unlock').hidden=!confirmed;
-  $('confirm').disabled=confirmed||lost||pending||editing||!$('reviewed').checked||!items.length||items.some(i=>!i.item||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>20);
+  $('confirm').disabled=confirmed||lost||pending||editing||!$('reviewed').checked||!items.length||items.some(i=>!menu.drink?.includes(i.item)||!menu.size?.includes(i.size)||!menu.temperature?.includes(i.temperature)||!menu.milk?.includes(i.milk)||!Number.isInteger(i.quantity)||i.quantity<1||i.quantity>20);
   $('confirm-label').textContent=confirmed?'Order confirmed':'Confirm order';
   $('capture-state').textContent=running?'Listening continuously':'Microphone off';
   $('capture-hint').textContent=running?'Speak naturally. Pause briefly to update the order.':'Start listening, then speak an order naturally.';
@@ -34,8 +34,9 @@ function renderItems(){
     controls();return;
   }
   $('items').innerHTML=rows.map(({item,index})=>{
-    const status=confirmed?'<span class="badge confirmed">✓ Confirmed</span>':edited.has(index)?'<span class="badge edited">Edited</span>':item.quantity==null?'<span class="badge draft">Needs quantity</span>':decisions.length?'<span class="badge inferred">Review match</span>':'<span class="badge neutral">Review</span>';
-    return `<tr class="order-item" data-index="${index}"><td data-column="drink" data-label="Drink">${esc(item.item||'Unknown drink')}</td><td data-column="quantity" data-label="Quantity">${item.quantity??'?'}</td><td data-column="size" data-label="Size">${esc(item.size||'Unspecified')}</td><td data-column="temperature" data-label="Temperature">${esc(item.temperature||'Unspecified')}</td><td data-column="milk" data-label="Milk">${esc(item.milk||'Unspecified')}</td><td data-column="extras" data-label="Extras">${esc((item.modifiers||[]).join(', ')||'—')}</td><td data-label="Status">${status}</td><td><button type="button" class="edit-button" aria-label="Edit ${esc(item.item||'order')} item ${index+1}"${confirmed?' disabled':''}>${icon('edit-icon')}Edit</button></td></tr>`;
+    const value=(key,fallback)=>`${esc(item[key]??fallback)}${(item.assumed_fields||[]).includes(key)?'<small class=default-label>Default</small>':''}`;
+    const status=confirmed?'<span class="badge confirmed">✓ Confirmed</span>':edited.has(index)?'<span class="badge edited">Edited</span>':item.assumed_fields?.length?'<span class="badge draft">Check defaults</span>':decisions.length?'<span class="badge inferred">Review match</span>':'<span class="badge neutral">Review</span>';
+    return `<tr class="order-item" data-index="${index}"><td data-column="drink" data-label="Drink">${esc(item.item||'Unknown drink')}</td><td data-column="quantity" data-label="Quantity">${value('quantity',1)}</td><td data-column="size" data-label="Size">${value('size','medium')}</td><td data-column="temperature" data-label="Temperature">${value('temperature','hot')}</td><td data-column="milk" data-label="Milk">${value('milk','whole milk')}</td><td data-column="extras" data-label="Extras">${esc((item.modifiers||[]).join(', ')||'No extras')}${(item.assumed_fields||[]).includes('modifiers')?'<small class=default-label>Default</small>':''}</td><td data-label="Status">${status}</td><td><button type="button" class="edit-button" aria-label="Edit ${esc(item.item||'order')} item ${index+1}"${confirmed?' disabled':''}>${icon('edit-icon')}Edit</button></td></tr>`;
   }).join('');
   $('items').querySelectorAll('.edit-button').forEach(button=>button.addEventListener('click',()=>openEditor(Number(button.closest('tr').dataset.index))));
   controls();
@@ -61,7 +62,7 @@ function renderTranscript(){
 function closeCombos(){for(const combo of document.querySelectorAll('.menu-combo')){combo.querySelector('.menu-options').hidden=true;combo.querySelector('input').setAttribute('aria-expanded','false');combo.querySelector('input').removeAttribute('aria-activedescendant');}activeCombo=null;}
 function showOptions(category,query=''){
   closeCombos();const combo=document.querySelector(`.menu-combo[data-category="${category}"]`),input=combo.querySelector('input'),list=combo.querySelector('.menu-options');
-  const choices=(category==='drink'?[]:[null]).concat(menu[category]).filter(value=>(value||'Unspecified').toLowerCase().includes(query.trim().toLowerCase()));
+  const choices=[...menu[category]].filter(value=>(value||'Unspecified').toLowerCase().includes(query.trim().toLowerCase()));
   list.replaceChildren();list.hidden=false;input.setAttribute('aria-expanded','true');activeCombo={category,choices,index:-1};
   if(!choices.length){const p=document.createElement('p');p.textContent='No matching options. Try another search.';list.append(p);}
   choices.forEach((value,index)=>{const button=document.createElement('button');button.type='button';button.setAttribute('role','option');button.setAttribute('aria-selected','false');button.dataset.value=value||'';button.textContent=value||'Unspecified';button.id=`${category}-option-${index}`;button.tabIndex=-1;
@@ -75,7 +76,7 @@ function renderExtras(){
 }
 function openEditor(index){
   if(confirmed||!ready)return;
-  editIndex=index;editDraft=structuredClone(index<0?{item:null,quantity:1,size:null,temperature:null,milk:null,modifiers:[]}:items[index]);
+  editIndex=index;editDraft=structuredClone(index<0?{item:null,quantity:1,size:'medium',temperature:'hot',milk:'whole milk',modifiers:[],assumed_fields:['size','temperature','milk','modifiers']}:items[index]);
   editDraft.modifiers=editDraft.modifiers||[];editing=true;deferredOrder=null;
   $('editor-title').textContent=index<0?'Add an item':'Correct item';$('save-edit').innerHTML=icon('check-icon')+(index<0?'Add to order':'Save correction');
   $('edit-quantity').value=editDraft.quantity??'';$('editor-error').hidden=true;$('remove-item').hidden=index<0;$('extras-search').value='';
@@ -109,11 +110,12 @@ function saveEditor(event){
   editDraft.quantity=quantity;
   for(const category of ['drink','size','temperature','milk']){
     const value=$(`edit-${category}`).value.trim().toLowerCase();const valid=menu[category].find(choice=>choice.toLowerCase()===value);
-    if(value&&!valid)error=`Choose a listed ${category} from the search results.`;
+    if(!valid)error=`Choose a listed ${category} from the search results.`;
     if(category==='drink'&&!valid)error='Choose a drink from the menu.';
     editDraft[category==='drink'?'item':category]=valid||null;
   }
   if(error){$('editor-error').textContent=error;$('editor-error').hidden=false;return;}
+  editDraft.assumed_fields=[];
   const before=editIndex<0?null:structuredClone(items[editIndex]);
   const index=editIndex<0?items.length:editIndex;items[index]=structuredClone(editDraft);edited.add(index);manual=true;$('reviewed').checked=false;
   corrections.push({at:new Date().toISOString(),action:before?'edit':'add',index,before,after:structuredClone(editDraft)});

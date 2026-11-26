@@ -20,10 +20,23 @@ def draft(text):
         for key in ("size", "temperature", "milk"):
             if item[key] == "unspecified":
                 item[key] = None
+        defaults = {"quantity": 1, "size": "medium", "temperature": "hot", "milk": "whole milk"}
+        assumed = []
+        for key, value in defaults.items():
+            if item[key] is None:
+                item[key] = value
+                assumed.append(key)
+        if not item["modifiers"]:
+            assumed.append("modifiers")
+        item["assumed_fields"] = assumed
         item["status"] = "review"
         if index < len(matches):
             previous = matches[index].end()
-    warnings = [warning.replace("draft assumes one. Please check.", "quantity is unknown. Please confirm.") for warning in result.warnings]
+    warnings = [warning for warning in result.warnings if "quantity not spoken" not in warning and "size not specified" not in warning]
+    for item in items:
+        if item["assumed_fields"]:
+            fields = ", ".join("extras" if key == "modifiers" else key for key in item["assumed_fields"])
+            warnings.append(f"{item['item']}: default choices filled for {fields}. Check with the customer or edit before confirming.")
     return dict(items=items, warnings=warnings, interpreted_text=text)
 
 

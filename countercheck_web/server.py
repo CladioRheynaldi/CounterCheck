@@ -64,6 +64,14 @@ app = FastAPI(title="CounterCheck local Whisper", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
 
+@app.middleware("http")
+async def fresh_assets(request, call_next):
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-CounterCheck-Version"] = "2026.11.26"
+    return response
+
+
 @app.get("/")
 async def index():
     return FileResponse(STATIC / "index.html")
@@ -75,7 +83,7 @@ async def status():
                 error=state["error"], model=state["model"], active=state["active"],
                 device=getattr(state["engine"], "device", None),
                 models={name: (path / "config.json").exists() and (name == "baseline" or (path / "training.json").exists()) for name, path in CHECKPOINTS.items()},
-                menu=MENU, local_only=True,warmed=state.get('warmed',False))
+                menu=MENU, local_only=True,warmed=state.get('warmed',False), version="2026.11.26")
 
 
 class ModelChoice(BaseModel):
